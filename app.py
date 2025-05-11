@@ -1,72 +1,67 @@
 import streamlit as st
 import pandas as pd
-import psycopg2
-import matplotlib.pyplot as plt
 import seaborn as sns
-from io import BytesIO
+import matplotlib.pyplot as plt
 
-# ---------- CONFIG ---------- #
+# Page config
 st.set_page_config(page_title="Sales Dashboard", layout="wide")
 
-# ---------- DATA LOADING ---------- #
+# Title
+st.title("📊 Sales Dashboard (CSV-based)")
+
+# Load data from your CSV
 @st.cache_data
-
 def load_data():
-    conn = psycopg2.connect(
-    database="sales_db",
-    user="postgres",
-    password="Salunkhe@123",
-    host="localhost",
-    port="5432"
-)
-
-
-    df = pd.read_sql("SELECT * FROM orders", conn)
-    conn.close()
-    df['Order Date'] = pd.to_datetime(df['Order Date'])
-    df['Revenue'] = df['Sales']
+    df = pd.read_csv("train.csv")
     return df
 
 df = load_data()
 
-# ---------- SIDEBAR ---------- #
-st.sidebar.header("Filters")
-regions = st.sidebar.multiselect("Select Region", options=df['Region'].unique(), default=df['Region'].unique())
-categories = st.sidebar.multiselect("Select Category", options=df['Category'].unique(), default=df['Category'].unique())
+# Convert Order Date to datetime
+df['Order Date'] = pd.to_datetime(df['Order Date'], dayfirst=True, errors='coerce')
 
-df_filtered = df[df['Region'].isin(regions) & df['Category'].isin(categories)]
+# KPIs
+total_sales = df["Sales"].sum()
+total_orders = df["Order ID"].nunique()
 
-# ---------- KPI SECTION ---------- #
-st.title("📊 Sales Dashboard")
+col1, col2 = st.columns(2)
+col1.metric("Total Sales", f"${total_sales:,.2f}")
+col2.metric("Unique Orders", total_orders)
+
 st.markdown("---")
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Total Revenue", f"${df_filtered['Revenue'].sum():,.2f}")
-col2.metric("Avg Order Value", f"${df_filtered['Revenue'].mean():,.2f}")
-col3.metric("Total Orders", df_filtered.shape[0])
+# Region-wise Sales
+st.subheader("Sales by Region")
+region_sales = df.groupby("Region")["Sales"].sum().sort_values(ascending=False)
 
-# ---------- VISUALIZATIONS ---------- #
-st.markdown("### 📈 Monthly Revenue")
-monthly_sales = df_filtered.groupby(df_filtered['Order Date'].dt.to_period('M')).sum(numeric_only=True)
-monthly_sales.index = monthly_sales.index.astype(str)
-st.line_chart(monthly_sales['Revenue'])
+fig1, ax1 = plt.subplots()
+region_sales.plot(kind="bar", ax=ax1, color="skyblue")
+ax1.set_ylabel("Sales")
+ax1.set_xlabel("Region")
+st.pyplot(fig1)
 
-st.markdown("### 🛍️ Top 10 Products by Revenue")
-top_products = df_filtered.groupby('Product Name').sum(numeric_only=True).sort_values(by='Revenue', ascending=False).head(10)
-st.bar_chart(top_products['Revenue'])
+# Category-wise Sales
+st.subheader("Sales by Category")
+category_sales = df.groupby("Category")["Sales"].sum().sort_values(ascending=False)
 
-st.markdown("### 🌍 Revenue by Region")
-region_sales = df_filtered.groupby('Region')['Revenue'].sum()
-fig, ax = plt.subplots()
-ax.pie(region_sales, labels=region_sales.index, autopct='%1.1f%%', startangle=90)
-ax.axis('equal')
-st.pyplot(fig)
+fig2, ax2 = plt.subplots()
+category_sales.plot(kind="bar", ax=ax2, color="salmon")
+ax2.set_ylabel("Sales")
+ax2.set_xlabel("Category")
+st.pyplot(fig2)
 
-# ---------- EXPORT DATA ---------- #
-st.markdown("### 💾 Download Filtered Data")
-@st.cache_data
-def convert_df(df):
-    return df.to_csv(index=False).encode('utf-8')
+# Time series
+st.subheader("Sales Over Time")
+monthly_sales = df.groupby(df['Order Date'].dt.to_period("M"))["Sales"].sum()
+monthly_sales.index = monthly_sales.index.to_timestamp()
 
-csv = convert_df(df_filtered)
-st.download_button("Download CSV", csv, "filtered_sales_data.csv", "text/csv")
+fig3, ax3 = plt.subplots(figsize=(10, 4))
+monthly_sales.plot(ax=ax3, color="green")
+ax3.set_ylabel("Sales")
+ax3.set_xlabel("Month")
+ax3.set_title("Monthly Sales Trend")
+st.pyplot(fig3)
+
+# Raw data toggle
+with st.expander("Show Raw Data"):
+    st.dataframe(df)
